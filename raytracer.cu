@@ -29,11 +29,11 @@
 // Global Constants
 int kWidth = 3840;
 int kHeight = 2160;
-int kFPS = 30;
-int kSeconds = 2;
+int kFPS = 1;
+int kSeconds = 8;
 
 // Other important Stuff
-int deviceId;
+std::atomic<int> deviceId;
 cudaDeviceProp deviceProperties;
 
 // setup atomic and mutex
@@ -95,7 +95,7 @@ void raytrace(float* image, ImageInfo imageInfo) {
         if (colorIndex + 2 < (imageInfo.width * imageInfo.height * 3)) {
             image[colorIndex] = static_cast<float>((i) / imageInfo.width) / (imageInfo.height);
             image[colorIndex + 1] = static_cast<float>((i) % imageInfo.width) / (imageInfo.width);
-            image[colorIndex + 2] = imageInfo.frameNumber / (imageInfo.totalFrames);
+            image[colorIndex + 2] = static_cast<float>(imageInfo.frameNumber) / (imageInfo.totalFrames);
         }
     }
 
@@ -111,8 +111,11 @@ void saveImage(float* image, ImageInfo imageInfo) {
     file << "P3\n" << imageInfo.width << " " << imageInfo.height << "\n255\n";
     for (int i = 0; i < (imageInfo.height * imageInfo.width); i++) {
         int colorIndex = i * 3;
-        file << int(image[colorIndex + 0] * 255.999) << " " << int(image[colorIndex + 1] * 255.999) << " " << int(image[colorIndex + 2] * 255.999) << "\n";
+        if (colorIndex + 2 < (imageInfo.width * imageInfo.height * 3)) {
+            file << int(image[colorIndex + 0] * 255.999) << " " << int(image[colorIndex + 1] * 255.999) << " " << int(image[colorIndex + 2] * 255.999) << "\n";
+        }
     }
+
     file.close();
 
     return;
@@ -120,7 +123,9 @@ void saveImage(float* image, ImageInfo imageInfo) {
 
 __host__
 void setUp() {
-    cudaGetDevice(&deviceId);
+    int devId;
+    cudaGetDevice(&devId);
+    deviceId.store(devId);
     cudaGetDeviceProperties(&deviceProperties, deviceId);
     checkCuda(cudaSetDevice(deviceId));
     // if image folers exist, remove them
@@ -157,51 +162,44 @@ void cleanUp() {
 }
 
 __host__
-void workerFunction() {
+void workerFunction(int blocks, int threads) {
     ImageInfo imageInfo{};
     imageInfo.totalFrames = (kFPS * kSeconds);
-    int N = imageInfo.width * imageInfo.height * 3;
-    size_t bytes = N * sizeof(float);
-    //printf("%d", bytes);
+    size_t bytes = imageInfo.width * imageInfo.height * 3 * sizeof(float);
 
-    int blocks = deviceProperties.multiProcessorCount * deviceProperties.maxBlocksPerMultiProcessor;
-    int threads = deviceProperties.maxThreadsPerBlock;
-
-    printf("Blocks: %d, Threads: %d\n", blocks, threads);
-
-    float* image;
-    checkCuda(cudaMallocManaged(&image, bytes));
+    float* imageHost;
+    float* imageDevice;
+    checkCuda(cudaMallocHost(&imageHost, bytes));
+    checkCuda(cudaMalloc(&imageDevice, bytes));
 
     while (frameCounterSync < (kFPS * kSeconds)) {
         imageInfo.frameNumber = frameCounterSync.fetch_add(1);
 
-        //printf("Here Lies the Failure, Prefetch 1\n");
-        //checkCuda(cudaMemPrefetchAsync(&image, bytes, deviceId));
-        //printf("Here Did Not Lie the Failure\n");
-        raytrace<<<blocks, threads>>>(image, imageInfo);
-        //printf("Here Lies the Failure, Sync\n");
+        raytrace<<<blocks, threads>>>(imageDevice, imageInfo);
         checkCuda(cudaDeviceSynchronize());
-        //printf("Here Did Not Lie the Failure\n");
-        //printf("Here Lies the Failure, Prefetch 2\n");
-        //checkCuda(cudaMemPrefetchAsync(&image, bytes, cudaCpuDeviceId));
-        //printf("Here Did Not Lie the Failure\n");
-        saveImage(image, imageInfo);
+        checkCuda(cudaMemcpy(imageHost, imageDevice, bytes, cudaMemcpyDeviceToHost));
+
+        saveImage(imageHost, imageInfo);
     }
-    checkCuda(cudaFree(image));
+    checkCuda(cudaFree(imageDevice));
+    checkCuda(cudaFreeHost(imageHost));
 }
 
 int main() {
     setUp();
 
-    std::vector<std::thread> threads(std::thread::hardware_concurrency());
+    std::vector<std::thread> threadList(std::thread::hardware_concurrency());
     //std::vector<std::thread> threads(1);
 
-    for (int i = 0; i < threads.size(); i++) {
-        threads[i] = std::thread(workerFunction);
+    int blocks = deviceProperties.multiProcessorCount * deviceProperties.maxBlocksPerMultiProcessor;
+    int threads = deviceProperties.maxThreadsPerBlock;
+
+    for (int i = 0; i < threadList.size(); i++) {
+        threadList[i] = std::thread(workerFunction, blocks, threads);
     }
 
-    for (int i = 0; i < threads.size(); i++) {
-        threads[i].join();
+    for (int i = 0; i < threadList.size(); i++) {
+        threadList[i].join();
     }
 
     cleanUp();

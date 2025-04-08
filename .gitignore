@@ -3,4 +3,5 @@ raytracer.lib
 raytracer.exp
 .vs*
 images/
-output.mp4
+output/
+build/

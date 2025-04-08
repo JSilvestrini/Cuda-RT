@@ -29,8 +29,8 @@
 // Global Constants
 int kWidth = 3840;
 int kHeight = 2160;
-int kFPS = 1;
-int kSeconds = 8;
+int kFPS = 30;
+int kSeconds = 1;
 
 // Other important Stuff
 std::atomic<int> deviceId;
@@ -38,12 +38,6 @@ cudaDeviceProp deviceProperties;
 
 // setup atomic and mutex
 std::atomic<int> frameCounterSync(0);
-
-struct Camera {
-    float origin;
-    float fov;
-    // might need more, idk yet
-};
 
 struct ImageInfo {
     int width = kWidth;
@@ -56,6 +50,22 @@ struct vec3 {
     float x;
     float y;
     float z;
+};
+
+struct Camera {
+    vec3 origin;
+    float fov;
+    // might need more, idk yet
+};
+
+struct Ray {
+    vec3 direction;
+    vec3 origin;
+};
+
+struct Sphere {
+    vec3 origin;
+    float radius;
 };
 
 inline cudaError_t checkCuda(cudaError_t result) {
@@ -81,22 +91,26 @@ vec3 cross(vec3 a, vec3 b) {
     return vec3{x, y, z};
 }
 
+__device__
+float intercept_sphere(Sphere sphere, Ray ray) {
+    return 0.0f;
+}
+
 __global__
 void raytrace(float* image, ImageInfo imageInfo) {
-    // for each sphere, plane, shape, etc. in scene
-    // keep track of Z of intercept, use closest Z-coord
-    // get thread index and stride
     int idx = threadIdx.x + (blockDim.x * blockIdx.x);
     int stride = (gridDim.x * blockDim.x);
 
     for (int i = idx; i < (imageInfo.width * imageInfo.height); i += stride) {
         int colorIndex = i * 3;
 
-        if (colorIndex + 2 < (imageInfo.width * imageInfo.height * 3)) {
-            image[colorIndex] = static_cast<float>((i) / imageInfo.width) / (imageInfo.height);
-            image[colorIndex + 1] = static_cast<float>((i) % imageInfo.width) / (imageInfo.width);
-            image[colorIndex + 2] = static_cast<float>(imageInfo.frameNumber) / (imageInfo.totalFrames);
+        if (colorIndex + 2 > (imageInfo.width * imageInfo.height * 3)) {
+            break;
         }
+
+        image[colorIndex] = static_cast<float>((i) / imageInfo.width) / (imageInfo.height);
+        image[colorIndex + 1] = static_cast<float>((i) % imageInfo.width) / (imageInfo.width);
+        image[colorIndex + 2] = static_cast<float>(imageInfo.frameNumber) / (imageInfo.totalFrames);
     }
 
     return;
@@ -106,7 +120,7 @@ __host__
 void saveImage(float* image, ImageInfo imageInfo) {
     std::ofstream file;
     std::ostringstream fileName;
-    fileName << "images/" << std::setfill('0') << std::setw(4) << imageInfo.frameNumber << ".ppm";
+    fileName << "../images/" << std::setfill('0') << std::setw(4) << imageInfo.frameNumber << ".ppm";
     file.open(fileName.str());
     file << "P3\n" << imageInfo.width << " " << imageInfo.height << "\n255\n";
     for (int i = 0; i < (imageInfo.height * imageInfo.width); i++) {
@@ -133,7 +147,7 @@ void setUp() {
     #if __linux__
         mkdir("images");
     #else
-        CreateDirectory((LPCSTR) "images", NULL);
+        CreateDirectory((LPCSTR) "../images", NULL);
     #endif
     return;
 }
@@ -142,8 +156,8 @@ __host__
 void cleanUp() {
     // run ffmpeg to make video
     std::ostringstream commandStream;
-    commandStream << "ffmpeg -framerate " << kFPS << " -i \"images/%04d.ppm\" -c:v libx264 -preset slow -crf 18 -vf \"scale=";
-    commandStream << kWidth << ":" << kHeight << "\" output.mp4";
+    commandStream << "ffmpeg -framerate " << kFPS << " -i \"../images/%04d.ppm\" -c:v libx264 -preset slow -crf 18 -vf \"scale=";
+    commandStream << kWidth << ":" << kHeight << "\" ../output/output.mp4";
     std::string command = commandStream.str();
     int res = system(command.c_str());
 
@@ -185,6 +199,7 @@ void workerFunction(int blocks, int threads) {
     checkCuda(cudaFreeHost(imageHost));
 }
 
+/*
 int main() {
     setUp();
 
@@ -204,3 +219,5 @@ int main() {
 
     cleanUp();
 }
+
+*/

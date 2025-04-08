@@ -30,3 +30,5 @@ if __name__ == "__main__":
         create_dir("output")
 
     subprocess.run(["./build/Debug/my_cuda_app"])
+
+    clean_dir("images")

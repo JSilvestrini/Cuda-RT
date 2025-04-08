@@ -1,6 +1,3 @@
-raytracer.exe
-raytracer.lib
-raytracer.exp
 .vs*
 images/
 output/

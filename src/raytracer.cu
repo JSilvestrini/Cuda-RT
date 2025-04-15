@@ -7,11 +7,11 @@
 */
 #include <atomic>
 
-#include <cassert>
-#include <stdio.h>
-#include <cstdlib>
-
 #include "headers/raytracer.h"
+#include "headers/vec.cuh"
+#include "headers/ray.cuh"
+//#include "headers/intercepts.cuh"
+#include "headers/cudaHelpers.cuh"
 
 // Other important Stuff
 std::atomic<int> deviceId;
@@ -20,49 +20,38 @@ cudaDeviceProp deviceProperties;
 // setup atomic and mutex
 std::atomic<int> frameCounterSync(0);
 
-inline cudaError_t checkCuda(cudaError_t result) {
-    if (result != cudaSuccess) {
-        fprintf(stderr, "CUDA Runtime Error: %s\n", cudaGetErrorString(result));
-        assert(result == cudaSuccess);
-    }
-
-    return result;
-}
-
-__device__
-float dot(vec3 a, vec3 b) {
-    return ((a.x * b.x) + (a.y * b.y) + (a.z * b.z));
-}
-
-__device__
-vec3 cross(vec3 a, vec3 b) {
-    float x = (a.y * b.z) - (a.z * b.y);
-    float y = (a.z * b.x) - (a.x * b.z);
-    float z = (a.x * b.y) - (a.y * b.x);
-
-    return vec3{x, y, z};
-}
-
-__device__
-float intercept_sphere(Sphere sphere, Ray ray) {
-    return 0.0f;
-}
+struct Camera {
+    dVec3 origin = dVec3{0.0, 0.0, 0.0};
+    float focalLength = 1.0;
+    float fov;
+    // might need more, idk yet
+};
 
 __global__
 void raytrace(unsigned char* image, ImageInfo imageInfo) {
     int idx = threadIdx.x + (blockDim.x * blockIdx.x);
     int stride = (gridDim.x * blockDim.x);
 
+    Camera camera;
+    camera.origin = dVec3{sin(0.01f * static_cast<float>(imageInfo.frameNumber)), 0.0f, (cos(0.01f *static_cast<float>(imageInfo.frameNumber)))};
+
+    dVec3 viewportUpperLeft = camera.origin - dVec3{0, 0, camera.focalLength} - (dVec3{imageInfo.viewportU} / 2) - (dVec3{imageInfo.viewportV} / 2);
+    dVec3 pixel00Loc = viewportUpperLeft + 0.5 * (dVec3{imageInfo.viewportUDelta} + dVec3{imageInfo.viewportVDelta});
+
     for (int i = idx; i < (imageInfo.width * imageInfo.height); i += stride) {
+        int h = imageInfo.height - (i / imageInfo.width);
+        int w = (i % imageInfo.width);
+
+        dVec3 pixelCenter = pixel00Loc + (w * dVec3{imageInfo.viewportUDelta}) + (h * dVec3{imageInfo.viewportVDelta});
+        dVec3 rayDir = pixelCenter - camera.origin;
+
+        Ray ray{rayDir, camera.origin};
+        dVec3 color = ray.rayColor();
+
         int colorIndex = i * 3;
-
-        if (colorIndex + 2 > (imageInfo.width * imageInfo.height * 3)) {
-            break;
-        }
-
-        image[colorIndex] = static_cast<unsigned char>(static_cast<float>((i) / imageInfo.width) / (imageInfo.height) * 255.999);
-        image[colorIndex + 1] = static_cast<unsigned char>(static_cast<float>((i) % imageInfo.width) / (imageInfo.width) * 255.999);
-        image[colorIndex + 2] = static_cast<unsigned char>(static_cast<float>(imageInfo.frameNumber) / (imageInfo.totalFrames) * 255.999);
+        image[colorIndex] = static_cast<unsigned char>(color.data.x * 255.999);
+        image[colorIndex + 1] = static_cast<unsigned char>(color.data.y * 255.999);
+        image[colorIndex + 2] = static_cast<unsigned char>(color.data.z * 255.999);
     }
 
     return;

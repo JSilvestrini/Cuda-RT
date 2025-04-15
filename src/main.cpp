@@ -9,17 +9,7 @@
 #include "headers/stb_image_write.h"
 #include "headers/raytracer.h"
 
-// TODO:
-//  Clean .cu file
-//  Use tiny_obj_loader to load in objects
-//  Create triangle interception
-//  Create sphere interception
-//  Create BVH?
-//      How to transfer this to and from GPU?
-//      Have to sort items based on axis and
-//      Create tree based on sorted triangles
-
-void saveImage(void* image, ImageInfo imageInfo) {
+void saveImage(unsigned char* image, ImageInfo imageInfo) {
     std::ofstream file;
     std::ostringstream fileName;
     fileName << "images/" << std::setfill('0') << std::setw(8) << imageInfo.frameNumber << ".png";
@@ -41,6 +31,7 @@ void cleanup() {
     if (res == 0) {
         printf("It Worked!!!\n");
     }
+
     return;
 }
 
